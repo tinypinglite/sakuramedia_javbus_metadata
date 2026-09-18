@@ -1,0 +1,9 @@
+{
+  "plugin_id": "sakuramedia_javbus_metadata",
+  "display_name": "JavBus",
+  "version": "0.1.0",
+  "host_api_version": 6,
+  "settings_model": "Settings",
+  "requires_python": ">=3.10,<3.11",
+  "dependencies": []
+}
