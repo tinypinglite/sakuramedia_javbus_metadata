@@ -10,6 +10,13 @@ from src.plugins.extensions.metadata import (
     METADATA_SOURCE_EXTENSION_KEY,
     validate_metadata_extension,
 )
+from src.plugins.loader import load_plugin_settings_model
+
+
+def test_settings_model_resolves_from_package_root() -> None:
+    model = load_plugin_settings_model(Path(__file__).parents[1])
+    assert model is not None
+    assert "timeout_seconds" in model.model_fields
 
 
 def test_registration_declares_metadata_source(tmp_path: Path) -> None:
