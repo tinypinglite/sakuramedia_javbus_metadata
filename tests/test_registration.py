@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 from sakuramedia_javbus_metadata.plugin import DISPLAY_NAME, PLUGIN_ID, register
-
 from src.plugins import PluginContext
 from src.plugins.extensions.metadata import (
     METADATA_SOURCE_EXTENSION_KEY,

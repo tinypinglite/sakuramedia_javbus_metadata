@@ -12,7 +12,6 @@ from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 
 import httpx
-
 from src.plugins import PluginMetadataActor, PluginMovieMetadata
 
 BASE_URL = "https://www.javbus.com"
