@@ -32,3 +32,9 @@ JavDB 未收录影片时，从 JavBus 按番号补全元数据。
 
 `timeout_seconds` 是单次请求超时时间（秒），范围 1–120，默认 20。
 
+
+## License
+
+本项目采用 [PolyForm Noncommercial License 1.0.0](./LICENSE)，仅允许非商业用途。
+
+Copyright (C) 2026 tinypinglite
