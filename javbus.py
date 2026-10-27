@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 
@@ -25,6 +26,12 @@ _HEADERS = {
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DURATION = re.compile(r"(\d+)\s*分鐘")
+
+
+class Translator(Protocol):
+    """宿主 ``PluginI18n`` 的最小接口；错误消息按当前请求语言渲染。"""
+
+    def t(self, key: str, default: str | None = None, **params: Any) -> str: ...
 
 
 class JavBusPageError(RuntimeError):
@@ -155,7 +162,7 @@ class _PageParser(HTMLParser):
             self._value_parts.append(data)
 
 
-def parse_movie_page(html: str) -> ParsedMovie | None:
+def parse_movie_page(html: str, i18n: Translator) -> ParsedMovie | None:
     """解析影片详情页；页面不是影片页返回 None，缺少必填字段抛错。"""
     parser = _PageParser()
     parser.feed(html)
@@ -166,16 +173,30 @@ def parse_movie_page(html: str) -> ParsedMovie | None:
     if not movie_number and not heading:
         return None
     if not movie_number:
-        raise JavBusPageError("JavBus 页面缺少識別碼")
+        raise JavBusPageError(
+            i18n.t("errors.missing_movie_number", default="JavBus 页面缺少識別碼")
+        )
     if not parser.cover_href:
-        raise JavBusPageError(f"JavBus 页面缺少封面 movie_number={movie_number}")
+        raise JavBusPageError(
+            i18n.t(
+                "errors.missing_cover",
+                default="JavBus 页面缺少封面 movie_number={movie_number}",
+                movie_number=movie_number,
+            )
+        )
 
     release_date_text = _DATE.search(parser.info.get("發行日期", ""))
     duration_match = _DURATION.search(parser.info.get("長度", ""))
     duration_minutes = int(duration_match.group(1)) if duration_match else 0
     if release_date_text is None or duration_minutes <= 0:
         raise JavBusPageError(
-            f"JavBus 页面缺少发行日期或时长 movie_number={movie_number}"
+            i18n.t(
+                "errors.missing_release_date_or_duration",
+                default=(
+                    "JavBus 页面缺少发行日期或时长 movie_number={movie_number}"
+                ),
+                movie_number=movie_number,
+            )
         )
 
     actors = tuple(dict.fromkeys(parser.actors))
@@ -206,8 +227,11 @@ def _requires_verification(response: httpx.Response) -> bool:
 class JavBusMetadataSource:
     """按番号查询 JavBus，并把封面与剧照交付到 metadata-tmp 请求目录。"""
 
-    def __init__(self, *, data_dir: Path, timeout_seconds: float) -> None:
+    def __init__(
+        self, *, data_dir: Path, timeout_seconds: float, i18n: Translator
+    ) -> None:
         self.data_dir = data_dir
+        self.i18n = i18n
         self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=True)
 
     def fetch_movie(self, movie_number: str) -> PluginMovieMetadata | None:
@@ -217,12 +241,17 @@ class JavBusMetadataSource:
         detail_url = f"{BASE_URL}/{requested.upper()}"
         response = self.client.get(detail_url, headers=_HEADERS, follow_redirects=False)
         if _requires_verification(response):
-            raise JavBusPageError("JavBus 要求人机验证，本次查询未执行")
+            raise JavBusPageError(
+                self.i18n.t(
+                    "errors.human_verification",
+                    default="JavBus 要求人机验证，本次查询未执行",
+                )
+            )
         if response.status_code == 404:
             return None
         response.raise_for_status()
 
-        parsed = parse_movie_page(response.text)
+        parsed = parse_movie_page(response.text, self.i18n)
         if parsed is None or _compact(parsed.movie_number) != _compact(requested):
             return None
 

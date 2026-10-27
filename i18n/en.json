@@ -1,0 +1,8 @@
+{
+  "manifest.display_name": "JavBus",
+  "settings.timeout_seconds.title": "Request timeout (seconds)",
+  "errors.missing_movie_number": "JavBus page is missing the movie number",
+  "errors.missing_cover": "JavBus page is missing the cover (movie number {movie_number})",
+  "errors.missing_release_date_or_duration": "JavBus page is missing the release date or duration (movie number {movie_number})",
+  "errors.human_verification": "JavBus requires human verification; this lookup was not performed"
+}

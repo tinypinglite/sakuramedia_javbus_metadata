@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 PLUGINS_ROOT = PLUGIN_ROOT.parent
 host_root = os.environ.get("SAKURAMEDIA_HOST_ROOT")
@@ -15,3 +17,22 @@ if not (HOST_ROOT / "src/plugins/extensions/metadata.py").is_file():
 for path in (PLUGINS_ROOT, HOST_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+
+@pytest.fixture
+def set_language():
+    """切换宿主当前请求语言（与线上一致走 ContextVar），测试结束恢复。"""
+    from src.i18n.locale import (
+        new_language_state,
+        reset_language_state,
+        set_language_state,
+    )
+
+    tokens = []
+
+    def _set(locale: str) -> None:
+        tokens.append(set_language_state(new_language_state(locale)))
+
+    yield _set
+    for token in reversed(tokens):
+        reset_language_state(token)

@@ -94,10 +94,21 @@ jobs:
           package_dir="$(mktemp -d)"
           cp README.md manifest.json "$package_dir/"
           find . -maxdepth 1 -type f -name '*.py' -exec cp {} "$package_dir/" \;
+          # 语言包属于运行时必需资源：漏带会让宿主取不到文案，界面直接显示 key。
+          cp -R i18n "$package_dir/i18n"
           (
             cd "$package_dir"
             zip -q -r "$GITHUB_WORKSPACE/$zip_name" .
           )
+          # 产物断言：语言包缺失时立即失败，避免用户装上插件才发现文案异常。
+          zip_entries="$(unzip -Z1 "$zip_name")"
+          printf '%s\n' "$zip_entries"
+          for entry in i18n/en.json i18n/zh-CN.json; do
+            if ! printf '%s\n' "$zip_entries" | grep -Fqx "$entry"; then
+              echo "::error::Release zip is missing $entry"
+              exit 1
+            fi
+          done
           sha256sum "$zip_name" > "$zip_name.sha256"
           echo "zip=$zip_name" >> "$GITHUB_OUTPUT"
           echo "checksum=$zip_name.sha256" >> "$GITHUB_OUTPUT"

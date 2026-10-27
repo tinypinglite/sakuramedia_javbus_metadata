@@ -10,6 +10,8 @@ from sakuramedia_javbus_metadata.javbus import (
     JavBusPageError,
     parse_movie_page,
 )
+from sakuramedia_javbus_metadata.plugin import PLUGIN_ID
+from src.plugins.i18n import PluginI18n
 
 FIXTURE = (Path(__file__).parent / "data" / "ssis001.html").read_text(encoding="utf-8")
 EXPECTED_TITLE = (
@@ -17,10 +19,13 @@ EXPECTED_TITLE = (
     "彼女不在の3日間。"
 )
 COVER_PATH = "/pics/cover/83ie_b.jpg"
+I18N = PluginI18n(PLUGIN_ID, Path(__file__).resolve().parents[1])
 
 
 def _build_source(tmp_path: Path, handler) -> JavBusMetadataSource:
-    source = JavBusMetadataSource(data_dir=tmp_path / "data", timeout_seconds=5)
+    source = JavBusMetadataSource(
+        data_dir=tmp_path / "data", timeout_seconds=5, i18n=I18N
+    )
     source.client.close()
     source.client = httpx.Client(
         transport=httpx.MockTransport(handler), follow_redirects=True
@@ -39,7 +44,7 @@ def _ok_handler(request: httpx.Request) -> httpx.Response:
 
 
 def test_parse_movie_page_maps_fields() -> None:
-    parsed = parse_movie_page(FIXTURE)
+    parsed = parse_movie_page(FIXTURE, I18N)
     assert parsed is not None
     assert parsed.movie_number == "SSIS-001"
     assert parsed.title == EXPECTED_TITLE
@@ -65,7 +70,7 @@ def test_parse_movie_page_maps_fields() -> None:
 
 def test_parse_movie_page_requires_date_and_duration() -> None:
     with pytest.raises(JavBusPageError):
-        parse_movie_page(FIXTURE.replace("150分鐘", "未知"))
+        parse_movie_page(FIXTURE.replace("150分鐘", "未知"), I18N)
 
 
 def test_fetch_movie_delivers_metadata_and_images(tmp_path: Path) -> None:
