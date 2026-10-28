@@ -5,7 +5,12 @@
     "zh-CN": "JavBus",
     "en": "JavBus"
   },
-  "version": "0.0.2",
+  "description": "JavDB 未收录时，按番号从 JavBus 补全影片标题、发行日期、时长、片商、演员、标签、封面和剧照等元数据。",
+  "description_i18n": {
+    "zh-CN": "JavDB 未收录时，按番号从 JavBus 补全影片标题、发行日期、时长、片商、演员、标签、封面和剧照等元数据。",
+    "en": "Fills in missing metadata from JavBus by movie number when JavDB has no record: title, release date, duration, studio, cast, tags, cover and stills."
+  },
+  "version": "0.0.3",
   "host_api_version": 12,
   "settings_model": "Settings",
   "requires_python": ">=3.10,<3.11",
