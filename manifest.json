@@ -10,7 +10,7 @@
     "zh-CN": "按番号从 JavBus 提供影片元数据，并支持订阅演员影片列表同步。",
     "en": "Provides movie metadata from JavBus by movie number and supports subscribed-actor movie list sync."
   },
-  "version": "0.0.3",
+  "version": "0.1.0",
   "host_api_version": 18,
   "settings_model": "Settings",
   "requires_python": ">=3.10,<3.11",
