@@ -9,11 +9,13 @@ from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 from uuid import uuid4
 
 import httpx
 from src.plugins import PluginMetadataActor, PluginMovieMetadata
+
+from .rate_limit import RateLimiter
 
 BASE_URL = "https://www.javbus.com"
 _HEADERS = {
@@ -22,6 +24,10 @@ _HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     ),
     "Cookie": "dv=1",
+}
+_ACTOR_HEADERS = {
+    **_HEADERS,
+    "Cookie": "dv=1; existmag=all",
 }
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -51,6 +57,24 @@ class ParsedMovie:
     tags: tuple[str, ...]
     cover_href: str
     plot_hrefs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ParsedStar:
+    star_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ParsedActorMovie:
+    movie_number: str
+    release_date: date | None
+
+
+@dataclass(frozen=True)
+class ParsedActorMoviePage:
+    movies: tuple[ParsedActorMovie, ...]
+    has_next: bool
 
 
 def _squash(parts: list[str]) -> str:
@@ -162,6 +186,136 @@ class _PageParser(HTMLParser):
             self._value_parts.append(data)
 
 
+class _ActorSearchParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.actors: list[ParsedStar] = []
+        self._in_avatar = False
+        self._href: str | None = None
+        self._title: str | None = None
+        self._text_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        classes = (attributes.get("class") or "").split()
+        if tag == "a" and "avatar-box" in classes:
+            self._in_avatar = True
+            self._href = attributes.get("href")
+            self._title = None
+            self._text_parts = []
+        elif self._in_avatar and tag == "img":
+            self._title = attributes.get("title")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._in_avatar:
+            self._in_avatar = False
+            self._append_actor()
+
+    def handle_data(self, data: str) -> None:
+        if self._in_avatar and data.strip():
+            self._text_parts.append(data)
+
+    def _append_actor(self) -> None:
+        if not self._href:
+            return
+        parts = [part for part in urlsplit(self._href).path.split("/") if part]
+        if len(parts) < 2 or parts[-2] != "star":
+            return
+        star_id = unquote(parts[-1]).strip()
+        name = (self._title or _squash(self._text_parts)).strip()
+        for suffix in ("有碼", "無碼"):
+            if name.endswith(suffix):
+                name = name[: -len(suffix)].strip()
+        if star_id and name:
+            self.actors.append(ParsedStar(star_id=star_id, name=name))
+
+
+class _ActorMoviePageParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.movies: list[ParsedActorMovie] = []
+        self.has_next = False
+        self._in_movie = False
+        self._href: str | None = None
+        self._dates: list[str] = []
+        self._in_date = False
+        self._date_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        classes = (attributes.get("class") or "").split()
+        if tag == "a" and attributes.get("id") == "next":
+            self.has_next = True
+        elif tag == "a" and "movie-box" in classes:
+            self._in_movie = True
+            self._href = attributes.get("href")
+            self._dates = []
+        elif self._in_movie and tag == "date":
+            self._in_date = True
+            self._date_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "date" and self._in_date:
+            self._in_date = False
+            value = _squash(self._date_parts)
+            if value:
+                self._dates.append(value)
+        elif tag == "a" and self._in_movie:
+            self._in_movie = False
+            self._append_movie()
+
+    def handle_data(self, data: str) -> None:
+        if self._in_date:
+            self._date_parts.append(data)
+
+    def _append_movie(self) -> None:
+        if not self._href:
+            return
+        parts = [part for part in urlsplit(self._href).path.split("/") if part]
+        if not parts:
+            return
+        number = unquote(parts[-1]).strip()
+        if not number:
+            return
+        release_date = None
+        for value in self._dates:
+            match = _DATE.search(value)
+            if match:
+                release_date = date.fromisoformat(match.group(0))
+                break
+        self.movies.append(
+            ParsedActorMovie(
+                movie_number=number,
+                release_date=release_date,
+            )
+        )
+
+
+def parse_actor_search_page(html: str) -> tuple[ParsedStar, ...]:
+    parser = _ActorSearchParser()
+    parser.feed(html)
+    parser.close()
+    seen: set[str] = set()
+    actors: list[ParsedStar] = []
+    for actor in parser.actors:
+        key = actor.star_id.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        actors.append(actor)
+    return tuple(actors)
+
+
+def parse_actor_movie_page(html: str) -> ParsedActorMoviePage:
+    parser = _ActorMoviePageParser()
+    parser.feed(html)
+    parser.close()
+    return ParsedActorMoviePage(
+        movies=tuple(parser.movies),
+        has_next=parser.has_next,
+    )
+
+
 def parse_movie_page(html: str, i18n: Translator) -> ParsedMovie | None:
     """解析影片详情页；页面不是影片页返回 None，缺少必填字段抛错。"""
     parser = _PageParser()
@@ -228,18 +382,86 @@ class JavBusMetadataSource:
     """按番号查询 JavBus，并把封面与剧照交付到 metadata-tmp 请求目录。"""
 
     def __init__(
-        self, *, data_dir: Path, timeout_seconds: float, i18n: Translator
+        self,
+        *,
+        data_dir: Path,
+        timeout_seconds: float,
+        i18n: Translator,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         self.data_dir = data_dir
         self.i18n = i18n
+        self.rate_limiter = rate_limiter
         self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=True)
 
-    def fetch_movie(self, movie_number: str) -> PluginMovieMetadata | None:
-        requested = (movie_number or "").strip()
-        if not requested:
+    def find_actor(
+        self,
+        *,
+        name: str,
+        alias_names: list[str],
+    ) -> str | None:
+        wanted = {
+            value.strip().casefold()
+            for value in [name, *alias_names]
+            if value and value.strip()
+        }
+        if not wanted:
             return None
-        detail_url = f"{BASE_URL}/{requested.upper()}"
-        response = self.client.get(detail_url, headers=_HEADERS, follow_redirects=False)
+        query_names = list(
+            dict.fromkeys(
+                value.strip() for value in [name, *alias_names] if value.strip()
+            )
+        )
+        for query_name in query_names:
+            response = self._get_page(
+                f"{BASE_URL}/searchstar/{quote(query_name, safe='')}"
+            )
+            if response is None:
+                continue
+            matches = [
+                actor
+                for actor in parse_actor_search_page(response.text)
+                if actor.name.casefold() in wanted
+            ]
+            star_ids = {actor.star_id for actor in matches}
+            if len(star_ids) == 1:
+                return next(iter(star_ids))
+            if len(star_ids) > 1:
+                return None
+        return None
+
+    def get_actor_movies(
+        self,
+        *,
+        star_id: str,
+        page: int,
+    ) -> ParsedActorMoviePage | None:
+        if page < 1:
+            raise ValueError("page 必须大于等于 1")
+        path = f"/star/{quote(star_id, safe='')}"
+        if page > 1:
+            path = f"{path}/{page}"
+        response = self._get_page(
+            f"{BASE_URL}{path}",
+            actor_page=True,
+        )
+        if response is None:
+            return None
+        return parse_actor_movie_page(response.text)
+
+    def _get_page(
+        self,
+        url: str,
+        *,
+        actor_page: bool = False,
+    ) -> httpx.Response | None:
+        if self.rate_limiter is not None:
+            self.rate_limiter.wait()
+        response = self.client.get(
+            url,
+            headers=_ACTOR_HEADERS if actor_page else _HEADERS,
+            follow_redirects=False,
+        )
         if _requires_verification(response):
             raise JavBusPageError(
                 self.i18n.t(
@@ -250,6 +472,16 @@ class JavBusMetadataSource:
         if response.status_code == 404:
             return None
         response.raise_for_status()
+        return response
+
+    def fetch_movie(self, movie_number: str) -> PluginMovieMetadata | None:
+        requested = (movie_number or "").strip()
+        if not requested:
+            return None
+        detail_url = f"{BASE_URL}/{requested.upper()}"
+        response = self._get_page(detail_url)
+        if response is None:
+            return None
 
         parsed = parse_movie_page(response.text, self.i18n)
         if parsed is None or _compact(parsed.movie_number) != _compact(requested):

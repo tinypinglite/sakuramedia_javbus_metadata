@@ -1,0 +1,1 @@
+"""JavBus metadata plugin tests."""

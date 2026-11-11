@@ -1,8 +1,11 @@
 {
   "manifest.display_name": "JavBus",
   "settings.timeout_seconds.title": "请求超时（秒）",
+  "settings.min_request_interval_seconds.title": "APS 请求间隔（秒）",
+  "settings.min_request_interval_seconds.description": "仅在 APS 进程内生效，默认 3 秒",
   "errors.missing_movie_number": "JavBus 页面缺少識別碼",
   "errors.missing_cover": "JavBus 页面缺少封面 movie_number={movie_number}",
   "errors.missing_release_date_or_duration": "JavBus 页面缺少发行日期或时长 movie_number={movie_number}",
-  "errors.human_verification": "JavBus 要求人机验证，本次查询未执行"
+  "errors.human_verification": "JavBus 要求人机验证，本次查询未执行",
+  "errors.actor_movies_unavailable": "JavBus 演员影片页不可用"
 }

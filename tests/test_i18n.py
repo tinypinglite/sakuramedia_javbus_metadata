@@ -6,14 +6,15 @@ from pathlib import Path
 
 import httpx
 import pytest
+from src.plugins import PluginContext
+from src.plugins.i18n import PluginI18n
+
 from sakuramedia_javbus_metadata.javbus import (
     JavBusMetadataSource,
     JavBusPageError,
     parse_movie_page,
 )
 from sakuramedia_javbus_metadata.plugin import DISPLAY_NAME_I18N, PLUGIN_ID, register
-from src.plugins import PluginContext
-from src.plugins.i18n import PluginI18n
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = (Path(__file__).parent / "data" / "ssis001.html").read_text(encoding="utf-8")

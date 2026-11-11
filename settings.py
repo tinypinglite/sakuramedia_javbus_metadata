@@ -17,3 +17,18 @@ class Settings(BaseModel):
             "title_i18n": text_map("settings.timeout_seconds.title"),
         },
     )
+    min_request_interval_seconds: float = Field(
+        default=3.0,
+        ge=0.5,
+        le=60.0,
+        title="APS 请求间隔（秒）",
+        description="仅在 APS 进程内生效，默认 3 秒",
+        json_schema_extra={
+            "title_i18n": text_map(
+                "settings.min_request_interval_seconds.title"
+            ),
+            "description_i18n": text_map(
+                "settings.min_request_interval_seconds.description"
+            ),
+        },
+    )

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sakuramedia_javbus_metadata.plugin import DISPLAY_NAME, PLUGIN_ID, register
 from src.plugins import HOST_API_VERSION, PluginContext
 from src.plugins.extensions.metadata import (
     METADATA_SOURCE_EXTENSION_KEY,
@@ -11,6 +10,8 @@ from src.plugins.extensions.metadata import (
     validate_metadata_extension,
 )
 from src.plugins.loader import load_plugin_settings_model
+
+from sakuramedia_javbus_metadata.plugin import DISPLAY_NAME, PLUGIN_ID, register
 
 
 def test_settings_model_resolves_from_package_root() -> None:
@@ -46,3 +47,4 @@ def test_registration_declares_metadata_source(tmp_path: Path) -> None:
         plugin_id=PLUGIN_ID, extension=registration.extensions[0]
     )
     assert callable(source.fetch_movie)
+    assert callable(source.fetch_actor_movies)

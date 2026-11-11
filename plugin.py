@@ -12,7 +12,9 @@ from src.plugins import (
     PluginRegistration,
 )
 
+from .actor_sync import JavbusActorMovieSource, JavbusActorStateStore
 from .javbus import JavBusMetadataSource
+from .rate_limit import RateLimiter, is_aps_process
 from .settings import Settings
 from .translations import text_map
 
@@ -27,10 +29,22 @@ VERSION = MANIFEST["version"]
 
 def register(context: PluginContext) -> PluginRegistration:
     settings = Settings.model_validate(dict(context.settings))
+    rate_limiter = (
+        RateLimiter(settings.min_request_interval_seconds)
+        if is_aps_process()
+        else None
+    )
     source = JavBusMetadataSource(
         data_dir=context.data_dir,
         timeout_seconds=settings.timeout_seconds,
         i18n=context.i18n,
+        rate_limiter=rate_limiter,
+    )
+    actor_source = JavbusActorMovieSource(
+        source=source,
+        state_store=JavbusActorStateStore(
+            context.data_dir / "javbus" / "actors.json"
+        ),
     )
     return PluginRegistration(
         plugin_id=PLUGIN_ID,
@@ -41,7 +55,10 @@ def register(context: PluginContext) -> PluginRegistration:
         extensions=(
             PluginExtension(
                 key=METADATA_SOURCE_EXTENSION_KEY,
-                data=PluginMetadataSource(fetch_movie=source.fetch_movie),
+                data=PluginMetadataSource(
+                    fetch_movie=source.fetch_movie,
+                    fetch_actor_movies=actor_source.fetch_actor_movies,
+                ),
             ),
         ),
     )
