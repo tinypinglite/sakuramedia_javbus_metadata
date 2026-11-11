@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
+from loguru import logger
 from src.plugins import (
     PluginActorMoviePage,
     PluginActorMovieQuery,
@@ -150,6 +151,13 @@ class JavbusActorMovieSource:
         fingerprint = actor_fingerprint(actor)
         state = self.state_store.get(actor.actor_id)
         if state is None or state.fingerprint != fingerprint:
+            if state is not None:
+                logger.info(
+                    "JavBus actor movies state reset actor_id={} actor_name={} "
+                    "reason=identity_changed",
+                    actor.actor_id,
+                    actor.name,
+                )
             state = ActorSyncState(fingerprint=fingerprint)
 
         page = self._page_number(query.cursor)
@@ -162,44 +170,105 @@ class JavbusActorMovieSource:
                 ),
             )
             self.state_store.save(actor.actor_id, state)
+            logger.info(
+                "JavBus actor movies start actor_id={} actor_name={} mode={} "
+                "full_synced={} latest_release_date={}",
+                actor.actor_id,
+                actor.name,
+                query.mode,
+                state.full_synced_at is not None,
+                state.latest_release_date,
+            )
 
         state = self._ensure_star_id(actor, state)
         if state is None:
             return None
 
+        logger.info(
+            "JavBus actor movies request page actor_id={} actor_name={} "
+            "page={} mode={} star_id={}",
+            actor.actor_id,
+            actor.name,
+            page,
+            query.mode,
+            state.source_actor_id,
+        )
         page_data = self.source.get_actor_movies(
             star_id=state.source_actor_id,
             page=page,
         )
         if page_data is None:
             if page != 1:
+                logger.warning(
+                    "JavBus actor movies page unavailable actor_id={} "
+                    "actor_name={} page={} star_id={}",
+                    actor.actor_id,
+                    actor.name,
+                    page,
+                    state.source_actor_id,
+                )
                 raise JavBusPageError(
                     self.source.i18n.t(
                         "errors.actor_movies_unavailable",
                         default="JavBus 演员影片页不可用",
                     )
                 )
+            logger.warning(
+                "JavBus actor movies page unavailable, re-resolving actor "
+                "actor_id={} actor_name={} page={} star_id={}",
+                actor.actor_id,
+                actor.name,
+                page,
+                state.source_actor_id,
+            )
             state = ActorSyncState(fingerprint=fingerprint)
             state = self._ensure_star_id(actor, state)
             if state is None:
                 return None
+            logger.info(
+                "JavBus actor movies retry request page actor_id={} "
+                "actor_name={} page={} mode={} star_id={}",
+                actor.actor_id,
+                actor.name,
+                page,
+                query.mode,
+                state.source_actor_id,
+            )
             page_data = self.source.get_actor_movies(
                 star_id=state.source_actor_id,
                 page=page,
             )
             if page_data is None:
+                logger.warning(
+                    "JavBus actor movies page unavailable after re-resolve "
+                    "actor_id={} actor_name={} page={} star_id={}",
+                    actor.actor_id,
+                    actor.name,
+                    page,
+                    state.source_actor_id,
+                )
                 return None
 
+        logger.info(
+            "JavBus actor movies page fetched actor_id={} actor_name={} "
+            "page={} movies={} has_next={}",
+            actor.actor_id,
+            actor.name,
+            page,
+            len(page_data.movies),
+            page_data.has_next,
+        )
         page_dates = [
             movie.release_date
             for movie in page_data.movies
             if movie.release_date is not None
         ]
+        latest_on_page = max(page_dates).isoformat() if page_dates else None
         state = replace(
             state,
             pending_latest_release_date=self._max_iso_date(
                 state.pending_latest_release_date,
-                max(page_dates) if page_dates else None,
+                latest_on_page,
             ),
         )
         self.state_store.save(actor.actor_id, state)
@@ -226,6 +295,17 @@ class JavbusActorMovieSource:
                     pending_latest_release_date=None,
                 )
                 self.state_store.save(actor.actor_id, state)
+            logger.info(
+                "JavBus actor movies page done actor_id={} actor_name={} "
+                "page={} phase=full emitted={} latest_release_date={} "
+                "next_cursor={}",
+                actor.actor_id,
+                actor.name,
+                page,
+                len(numbers),
+                latest_on_page,
+                next_cursor,
+            )
             return PluginActorMoviePage(
                 movie_numbers=numbers,
                 next_cursor=next_cursor,
@@ -259,6 +339,19 @@ class JavbusActorMovieSource:
                 pending_latest_release_date=None,
             )
             self.state_store.save(actor.actor_id, state)
+        logger.info(
+            "JavBus actor movies page done actor_id={} actor_name={} "
+            "page={} phase=incremental emitted={} latest_release_date={} "
+            "cutoff={} reached_cutoff={} next_cursor={}",
+            actor.actor_id,
+            actor.name,
+            page,
+            len(numbers),
+            latest_on_page,
+            cutoff,
+            reached_cutoff,
+            next_cursor,
+        )
         return PluginActorMoviePage(
             movie_numbers=numbers,
             next_cursor=next_cursor,
@@ -271,13 +364,33 @@ class JavbusActorMovieSource:
     ) -> ActorSyncState | None:
         if state.source_actor_id:
             return state
+        logger.info(
+            "JavBus actor movies resolve source actor actor_id={} actor_name={} "
+            "aliases={}",
+            actor.actor_id,
+            actor.name,
+            actor.alias_names,
+        )
         star_id = self.source.find_actor(
             name=actor.name,
             alias_names=actor.alias_names,
         )
         if star_id is None:
+            logger.warning(
+                "JavBus actor movies unresolved actor_id={} actor_name={} "
+                "aliases={}",
+                actor.actor_id,
+                actor.name,
+                actor.alias_names,
+            )
             self.state_store.save(actor.actor_id, state)
             return None
+        logger.info(
+            "JavBus actor movies resolved actor_id={} actor_name={} star_id={}",
+            actor.actor_id,
+            actor.name,
+            star_id,
+        )
         state = replace(state, source_actor_id=star_id)
         self.state_store.save(actor.actor_id, state)
         return state

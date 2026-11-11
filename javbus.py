@@ -13,6 +13,7 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 from uuid import uuid4
 
 import httpx
+from loguru import logger
 from src.plugins import PluginMetadataActor, PluginMovieMetadata
 
 from .rate_limit import RateLimiter
@@ -413,10 +414,19 @@ class JavBusMetadataSource:
             )
         )
         for query_name in query_names:
+            logger.info(
+                "JavBus actor search request name={} aliases={}",
+                query_name,
+                alias_names,
+            )
             response = self._get_page(
                 f"{BASE_URL}/searchstar/{quote(query_name, safe='')}"
             )
             if response is None:
+                logger.warning(
+                    "JavBus actor search page unavailable name={}",
+                    query_name,
+                )
                 continue
             matches = [
                 actor
@@ -424,6 +434,13 @@ class JavBusMetadataSource:
                 if actor.name.casefold() in wanted
             ]
             star_ids = {actor.star_id for actor in matches}
+            logger.info(
+                "JavBus actor search response name={} candidates={} "
+                "matched_star_ids={}",
+                query_name,
+                len(matches),
+                sorted(star_ids),
+            )
             if len(star_ids) == 1:
                 return next(iter(star_ids))
             if len(star_ids) > 1:
