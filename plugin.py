@@ -1,4 +1,4 @@
-"""注册 JavBus 元数据来源：JavDB 明确未收录时按番号补缺。"""
+"""注册 JavBus 元数据来源：按番号提供影片元数据。"""
 
 import json
 from pathlib import Path

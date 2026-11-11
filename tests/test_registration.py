@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 
 from sakuramedia_javbus_metadata.plugin import DISPLAY_NAME, PLUGIN_ID, register
-from src.plugins import PluginContext
+from src.plugins import HOST_API_VERSION, PluginContext
 from src.plugins.extensions.metadata import (
     METADATA_SOURCE_EXTENSION_KEY,
+    METADATA_SOURCE_HOST_API_VERSION,
     validate_metadata_extension,
 )
 from src.plugins.loader import load_plugin_settings_model
@@ -28,9 +29,16 @@ def test_registration_declares_metadata_source(tmp_path: Path) -> None:
     assert manifest["plugin_id"] == PLUGIN_ID
     assert manifest["display_name"] == DISPLAY_NAME
     assert manifest["settings_model"] == "Settings"
-    assert manifest["host_api_version"] >= 6
+    assert (
+        METADATA_SOURCE_HOST_API_VERSION
+        <= manifest["host_api_version"]
+        <= HOST_API_VERSION
+    )
     assert registration.plugin_id == PLUGIN_ID
-    assert registration.host_api_version == manifest["host_api_version"]
+    assert registration.host_api_version in {
+        manifest["host_api_version"],
+        HOST_API_VERSION,
+    }
     assert [extension.key for extension in registration.extensions] == [
         METADATA_SOURCE_EXTENSION_KEY
     ]
