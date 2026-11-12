@@ -52,6 +52,7 @@ def register(context: PluginContext) -> PluginRegistration:
         display_name_i18n=DISPLAY_NAME_I18N,
         version=VERSION,
         host_api_version=HOST_API_VERSION,
+        test_movie_number="SSIS-001",
         extensions=(
             PluginExtension(
                 key=METADATA_SOURCE_EXTENSION_KEY,

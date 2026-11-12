@@ -40,6 +40,7 @@ def test_registration_declares_metadata_source(tmp_path: Path) -> None:
         manifest["host_api_version"],
         HOST_API_VERSION,
     }
+    assert registration.test_movie_number == "SSIS-001"
     assert [extension.key for extension in registration.extensions] == [
         METADATA_SOURCE_EXTENSION_KEY
     ]
