@@ -32,7 +32,20 @@ _ACTOR_HEADERS = {
 }
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# 同号影片重发时 JavBus 用 `START-649_2026-10-13` 区分，番号本体不含日期。
+_NUMBER_DATE_SUFFIX = re.compile(r"_\d{4}-\d{2}-\d{2}$")
 _DURATION = re.compile(r"(\d+)\s*分鐘")
+
+
+def _iso_date(text: str) -> date | None:
+    """取文本里的 ``YYYY-MM-DD``；``0000-00-00`` 这类脏值返回 None。"""
+    match = _DATE.search(text or "")
+    if match is None:
+        return None
+    try:
+        return date.fromisoformat(match.group(0))
+    except ValueError:
+        return None
 
 
 class Translator(Protocol):
@@ -275,14 +288,13 @@ class _ActorMoviePageParser(HTMLParser):
         parts = [part for part in urlsplit(self._href).path.split("/") if part]
         if not parts:
             return
-        number = unquote(parts[-1]).strip()
+        number = _NUMBER_DATE_SUFFIX.sub("", unquote(parts[-1]).strip())
         if not number:
             return
         release_date = None
         for value in self._dates:
-            match = _DATE.search(value)
-            if match:
-                release_date = date.fromisoformat(match.group(0))
+            release_date = _iso_date(value)
+            if release_date is not None:
                 break
         self.movies.append(
             ParsedActorMovie(
@@ -340,10 +352,10 @@ def parse_movie_page(html: str, i18n: Translator) -> ParsedMovie | None:
             )
         )
 
-    release_date_text = _DATE.search(parser.info.get("發行日期", ""))
+    release_date = _iso_date(parser.info.get("發行日期", ""))
     duration_match = _DURATION.search(parser.info.get("長度", ""))
     duration_minutes = int(duration_match.group(1)) if duration_match else 0
-    if release_date_text is None or duration_minutes <= 0:
+    if release_date is None or duration_minutes <= 0:
         raise JavBusPageError(
             i18n.t(
                 "errors.missing_release_date_or_duration",
@@ -358,7 +370,7 @@ def parse_movie_page(html: str, i18n: Translator) -> ParsedMovie | None:
     return ParsedMovie(
         movie_number=movie_number,
         title=_clean_title(heading, movie_number, actors),
-        release_date=date.fromisoformat(release_date_text.group(0)),
+        release_date=release_date,
         duration_minutes=duration_minutes,
         maker_name=parser.info.get("製作商"),
         director_name=parser.info.get("導演"),
@@ -395,19 +407,20 @@ class JavBusMetadataSource:
         self.rate_limiter = rate_limiter
         self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=True)
 
-    def find_actor(
+    def find_actors(
         self,
         *,
         name: str,
         alias_names: list[str],
-    ) -> str | None:
+    ) -> tuple[str, ...]:
+        """返回所有同名 star 页面；同一演员在 JavBus 上可能被拆成多个页面。"""
         wanted = {
             value.strip().casefold()
             for value in [name, *alias_names]
             if value and value.strip()
         }
         if not wanted:
-            return None
+            return ()
         query_names = list(
             dict.fromkeys(
                 value.strip() for value in [name, *alias_names] if value.strip()
@@ -433,19 +446,17 @@ class JavBusMetadataSource:
                 for actor in parse_actor_search_page(response.text)
                 if actor.name.casefold() in wanted
             ]
-            star_ids = {actor.star_id for actor in matches}
+            star_ids = tuple(dict.fromkeys(actor.star_id for actor in matches))
             logger.info(
                 "JavBus actor search response name={} candidates={} "
                 "matched_star_ids={}",
                 query_name,
                 len(matches),
-                sorted(star_ids),
+                list(star_ids),
             )
-            if len(star_ids) == 1:
-                return next(iter(star_ids))
-            if len(star_ids) > 1:
-                return None
-        return None
+            if star_ids:
+                return star_ids
+        return ()
 
     def get_actor_movies(
         self,

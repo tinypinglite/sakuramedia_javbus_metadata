@@ -157,11 +157,86 @@ def test_source_resolves_actor_and_reads_actor_movies(tmp_path: Path) -> None:
         return httpx.Response(404)
 
     source = _build_source(tmp_path, handler)
-    assert source.find_actor(name="葵つかさ", alias_names=["葵司"]) == "2xi"
+    assert source.find_actors(
+        name="葵つかさ", alias_names=["葵司"]
+    ) == ("2xi",)
     page = source.get_actor_movies(star_id="2xi", page=1)
     assert page is not None
     assert page.movies[0].movie_number == "ABC-001"
     assert page.has_next is True
+
+
+def test_source_keeps_every_star_page_with_same_name(tmp_path: Path) -> None:
+    search_html = """
+<div id="waterfall">
+  <div class="item">
+    <a class="avatar-box text-center" href="https://www.javbus.com/star/2xi">
+      <img src="/pics/actress/2xi_a.jpg" title="葵つかさ">
+      <span class="mleft">葵つかさ<button>有碼</button></span>
+    </a>
+  </div>
+  <div class="item">
+    <a class="avatar-box text-center" href="https://www.javbus.com/star/9kd">
+      <img src="/pics/actress/9kd_a.jpg" title="葵つかさ">
+      <span class="mleft">葵つかさ<button>有碼</button></span>
+    </a>
+  </div>
+  <div class="item">
+    <a class="avatar-box text-center" href="https://www.javbus.com/star/7zz">
+      <img src="/pics/actress/7zz_a.jpg" title="同名不同后缀">
+      <span class="mleft">同名不同后缀さん<button>無碼</button></span>
+    </a>
+  </div>
+</div>
+"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/searchstar/"):
+            return httpx.Response(200, text=search_html)
+        return httpx.Response(404)
+
+    source = _build_source(tmp_path, handler)
+
+    assert source.find_actors(
+        name="葵つかさ", alias_names=[]
+    ) == ("2xi", "9kd")
+
+
+def test_parse_actor_movie_page_keeps_movies_with_invalid_date() -> None:
+    html = """
+<div id="waterfall">
+  <div class="item">
+    <a class="movie-box" href="https://www.javbus.com/ABC-001">
+      <date>ABC-001</date> / <date>0000-00-00</date>
+    </a>
+  </div>
+</div>
+"""
+    page = parse_actor_movie_page(html)
+
+    assert [movie.movie_number for movie in page.movies] == ["ABC-001"]
+    assert page.movies[0].release_date is None
+
+
+def test_parse_actor_movie_page_strips_release_date_suffix() -> None:
+    html = """
+<div id="waterfall">
+  <div class="item">
+    <a class="movie-box" href="https://www.javbus.com/START-649_2026-10-13">
+      <date>START-649</date> / <date>2026-10-13</date>
+    </a>
+  </div>
+</div>
+"""
+    page = parse_actor_movie_page(html)
+
+    assert [movie.movie_number for movie in page.movies] == ["START-649"]
+    assert page.movies[0].release_date == date(2026, 10, 13)
+
+
+def test_parse_movie_page_rejects_invalid_release_date() -> None:
+    with pytest.raises(JavBusPageError):
+        parse_movie_page(FIXTURE.replace("2021-02-18", "0000-00-00"), I18N)
 
 
 def test_fetch_movie_delivers_metadata_and_images(tmp_path: Path) -> None:
